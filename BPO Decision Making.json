@@ -1,0 +1,839 @@
+{
+  "name": "BPO Decision Making",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        176
+      ],
+      "id": "6fb4f276-0c2b-4ac6-86ed-44f05dd38153",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "fileSelector": "/files/BPO_Decision_Making_Expanded.xlsx",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        176
+      ],
+      "id": "cd40da08-20ec-4588-a217-54113cb6e866",
+      "name": "Read/Write Files from Disk"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        464,
+        176
+      ],
+      "id": "443eb963-d930-4c0f-8515-2a162eb9e324",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nreturn items.map(item => {\n  const decision = String(item.json.Decision || '').trim();\n  const result = String(item.json.Result || '').trim();\n\n  let decisionType = \"Other\";\n  let riskLevel = \"Low\";\n  let decisionQuality = \"Needs Review\";\n\n  if (decision === \"Listen first\") {\n    decisionType = \"Customer Support\";\n    riskLevel = \"Low\";\n  } else if (decision === \"Inform the customer\") {\n    decisionType = \"Communication\";\n    riskLevel = \"Low\";\n  } else if (decision === \"Check policy\") {\n    decisionType = \"Policy\";\n    riskLevel = \"Medium\";\n  } else if (decision === \"Ask a supervisor\") {\n    decisionType = \"Escalation\";\n    riskLevel = \"High\";\n  } else if (decision === \"Explain the process\") {\n    decisionType = \"Guidance\";\n    riskLevel = \"Low\";\n  } else if (decision === \"Investigate the problem\") {\n    decisionType = \"Investigation\";\n    riskLevel = \"Medium\";\n  }\n\n  if (\n    (riskLevel === \"Low\" && (\n      result === \"Problem solved\" ||\n      result === \"Customer accepted\" ||\n      result === \"Customer understood\"\n    )) ||\n    (riskLevel === \"Medium\" && (\n      result === \"Refund approved\" ||\n      result === \"Problem solved\" ||\n      result === \"Case solved\"\n    )) ||\n    (riskLevel === \"High\" && (\n      result === \"Case solved\" ||\n      result === \"Exception approved\"\n    ))\n  ) {\n    decisionQuality = \"Effective\";\n  }\n\n  // Criticality based on decision risk\n  const criticality =\n    riskLevel === \"High\" ? \"Critical\" : \"Non-Critical\";\n\n  // Read the resolution time directly from Excel\n  const rawTime = item.json.Resolution_Time_Minutes;\n\n  let resolutionTimeMinutes = null;\n\n  if (\n    rawTime !== null &&\n    rawTime !== undefined &&\n    String(rawTime).trim() !== \"\"\n  ) {\n    const parsedTime = Number(rawTime);\n\n    if (Number.isFinite(parsedTime) && parsedTime >= 0) {\n      resolutionTimeMinutes = parsedTime;\n    }\n  }\n\n  // Calculate the TMO category\n  let tmoStatus = \"Not Specified\";\n  let alertRequired = false;\n\n  if (resolutionTimeMinutes !== null) {\n    if (resolutionTimeMinutes <= 5) {\n      tmoStatus = \"Within Target\";\n    } else if (resolutionTimeMinutes <= 30) {\n      tmoStatus = \"Delayed - Within Limit\";\n    } else {\n      tmoStatus = \"Critical\";\n      alertRequired = true;\n    }\n  }\n\n  return {\n    json: {\n      ...item.json,\n      Decision_Type: decisionType,\n      Risk_Level: riskLevel,\n      Decision_Quality: decisionQuality,\n      Criticality: criticality,\n      Resolution_Time_Minutes: resolutionTimeMinutes,\n      TMO_Status: tmoStatus,\n      Alert_Required: alertRequired\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        688,
+        176
+      ],
+      "id": "ccc496f2-4d87-4b16-a068-ddf9d6808d90",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash-lite",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        1520,
+        256
+      ],
+      "id": "d08b30af-12a0-44b6-a36a-0fbb17a984b5",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "j7ji28XNudZC3MRc",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "8d27d7ba-9f34-4249-9ed0-3e1fe037212a",
+              "leftValue": "={{ $json.Criticality }}",
+              "rightValue": "Critical",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        880,
+        176
+      ],
+      "id": "d2a92660-f860-450e-a11f-a172b03b2914",
+      "name": "If",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "sendTo": "vanderleyosiriscastrocuadrado@gmail.com",
+        "subject": "Critical BPO Cases - Action Required",
+        "message": "=\n<div style=\"font-family: Arial, Helvetica, sans-serif; max-width: 760px; margin: 0 auto; color: #243247; background-color: #f4f7fb; padding: 24px;\">\n\n  <div style=\"background-color: #172b4d; padding: 28px 24px; border-radius: 12px 12px 0 0; color: #ffffff;\">\n    <p style=\"margin: 0 0 8px; font-size: 12px; letter-spacing: 2px; color: #ffb4a9; font-weight: bold;\">BPO DECISION MAKING</p>\n    <h1 style=\"margin: 0; font-size: 25px; line-height: 1.3;\">Critical Cases Report</h1>\n    <p style=\"margin: 10px 0 0; color: #dbe6f5; font-size: 14px;\">Review required · Automated decision analysis</p>\n  </div>\n\n  <div style=\"background-color: #ffffff; padding: 24px; border: 1px solid #e1e7ef;\">\n    <p style=\"margin-top: 0;\">Hello,</p>\n    <p style=\"line-height: 1.7; color: #526176;\">\n      The following cases require attention. Review the risk, resolution time, and AI recommendations to determine the next action.\n    </p>\n\n    {{ $json.analisis_completo.filter(item => item.Criticality === 'Critical').map((item, index) => {\n      const escapeHtml = (value) => String(value ?? '')\n        .replace(/&/g, '&amp;')\n        .replace(/</g, '&lt;')\n        .replace(/>/g, '&gt;')\n        .replace(/\"/g, '&quot;')\n        .replace(/'/g, '&#39;');\n\n      const analysis = escapeHtml(item.AI_Analysis || item.output || 'No AI analysis available.');\n      const employee = escapeHtml(item.Employee_Name || 'Unknown Employee');\n      const situation = escapeHtml(item.Situation || 'Not specified');\n      const decision = escapeHtml(item.Decision || 'Not specified');\n      const quality = escapeHtml(item.Decision_Quality || 'Not specified');\n      const risk = escapeHtml(item.Risk_Level || 'Not specified');\n      const criticality = escapeHtml(item.Criticality || 'Critical');\n\n      const resolutionTime =\n        item.Resolution_Time_Minutes !== null &&\n        item.Resolution_Time_Minutes !== undefined &&\n        item.Resolution_Time_Minutes !== ''\n          ? `${escapeHtml(item.Resolution_Time_Minutes)} minutes`\n          : 'Not Specified';\n\n      const tmoCategory = escapeHtml(item.TMO_Status || 'Not Specified');\n\n      const alertRequired =\n        item.Alert_Required === true ||\n        String(item.Alert_Required).toLowerCase() === 'true'\n          ? 'Yes'\n          : 'No';\n\n      return `\n        <div style=\"margin: 24px 0; border: 1px solid #dce3ed; border-radius: 10px; overflow: hidden;\">\n\n          <div style=\"background-color: #fff1ef; padding: 16px 18px; border-bottom: 1px solid #f3d4cf;\">\n            <p style=\"margin: 0 0 6px; font-size: 11px; font-weight: bold; color: #a62e25; letter-spacing: 1px;\">CRITICAL CASE ${index + 1}</p>\n            <h2 style=\"margin: 0; font-size: 19px; color: #172b4d;\">${employee}</h2>\n          </div>\n\n          <div style=\"padding: 18px;\">\n            <p style=\"margin: 0 0 16px; color: #526176; line-height: 1.6;\">\n              <strong style=\"color: #243247;\">Situation:</strong><br>${situation}\n            </p>\n\n            <p style=\"margin: 0 0 16px; color: #526176; line-height: 1.6;\">\n              <strong style=\"color: #243247;\">Decision:</strong><br>${decision}\n            </p>\n\n            <table role=\"presentation\" style=\"width: 100%; border-collapse: collapse; font-size: 13px;\">\n              <tr>\n                <td style=\"padding: 10px; background-color: #f4f7fb; border: 1px solid #e1e7ef; width: 50%;\">\n                  <strong>Criticality</strong><br>\n                  <span style=\"display: inline-block; margin-top: 5px; color: #a62e25; font-weight: bold;\">${criticality}</span>\n                </td>\n                <td style=\"padding: 10px; background-color: #f4f7fb; border: 1px solid #e1e7ef; width: 50%;\">\n                  <strong>Risk Level</strong><br>\n                  <span style=\"display: inline-block; margin-top: 5px;\">${risk}</span>\n                </td>\n              </tr>\n              <tr>\n                <td style=\"padding: 10px; border: 1px solid #e1e7ef;\">\n                  <strong>Decision Quality</strong><br>\n                  <span style=\"display: inline-block; margin-top: 5px;\">${quality}</span>\n                </td>\n                <td style=\"padding: 10px; border: 1px solid #e1e7ef;\">\n                  <strong>Resolution Time</strong><br>\n                  <span style=\"display: inline-block; margin-top: 5px; font-weight: bold;\">Resolution Time: ${resolutionTime}</span>\n                </td>\n              </tr>\n              <tr>\n                <td colspan=\"2\" style=\"padding: 12px; border: 1px solid #e1e7ef;\">\n                  <strong>TMO Category:</strong> ${tmoCategory}<br>\n                  <strong>Alert Required:</strong> ${alertRequired}\n                </td>\n              </tr>\n            </table>\n\n            <div style=\"margin-top: 20px; padding: 16px; background-color: #f4f7fb; border-left: 4px solid #4263a5; border-radius: 4px;\">\n              <h3 style=\"margin: 0 0 10px; font-size: 15px; color: #172b4d;\">AI Analysis &amp; Recommendation</h3>\n              <div style=\"white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.8; color: #526176;\">${analysis}</div>\n            </div>\n          </div>\n        </div>\n      `;\n    }).join('') }}\n\n    <p style=\"margin: 24px 0 0; line-height: 1.7;\">Please review each case and take the necessary action.</p>\n  </div>\n\n  <div style=\"background-color: #e9eef5; padding: 18px 24px; border-radius: 0 0 12px 12px; text-align: center;\">\n    <p style=\"margin: 0; font-size: 12px; color: #526176;\">BPO Decision Making · Automated Report</p>\n    <p style=\"margin: 6px 0 0; font-size: 11px; color: #718096;\">This report was generated automatically.</p>\n  </div>\n\n</div>\n",
+        "options": {
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {}
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        3216,
+        -80
+      ],
+      "id": "269cd17f-628e-4916-9ca9-02cdb9131b79",
+      "name": "Critical Cases",
+      "webhookId": "abbc4fbc-2f41-44b0-ae9a-68f68be39ded",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "xd73cuyyNsJMiNXL",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "vanderleyosiriscastrocuadrado@gmail.com",
+        "subject": "BPO Non-Critical Cases - Analysis Report",
+        "message": "=\n<div style=\"font-family: Arial, Helvetica, sans-serif; max-width: 760px; margin: 0 auto; color: #243247; background-color: #f4f7fb; padding: 24px;\">\n\n  <div style=\"background-color: #174c3c; padding: 28px 24px; border-radius: 12px 12px 0 0; color: #ffffff;\">\n    <p style=\"margin: 0 0 8px; font-size: 12px; letter-spacing: 2px; color: #a7e3c8; font-weight: bold;\">BPO DECISION MAKING</p>\n    <h1 style=\"margin: 0; font-size: 25px; line-height: 1.3;\">Non-Critical Cases Report</h1>\n    <p style=\"margin: 10px 0 0; color: #d7f0e5; font-size: 14px;\">Decision review · Automated analysis</p>\n  </div>\n\n  <div style=\"background-color: #ffffff; padding: 24px; border: 1px solid #e1e7ef;\">\n    <p style=\"margin-top: 0;\">Hello,</p>\n    <p style=\"line-height: 1.7; color: #526176;\">\n      This report contains non-critical BPO cases, their resolution times, and practical recommendations for continuous improvement.\n    </p>\n\n    {{ $json.analisis_completo.filter(item => item.Criticality === 'Non-Critical').map((item, index) => {\n      const escapeHtml = (value) => String(value ?? '')\n        .replace(/&/g, '&amp;')\n        .replace(/</g, '&lt;')\n        .replace(/>/g, '&gt;')\n        .replace(/\"/g, '&quot;')\n        .replace(/'/g, '&#39;');\n\n      const employee = escapeHtml(item.Employee_Name || 'Unknown Employee');\n      const situation = escapeHtml(item.Situation || 'Not specified');\n      const decision = escapeHtml(item.Decision || 'Not specified');\n      const quality = escapeHtml(item.Decision_Quality || 'Not specified');\n      const risk = escapeHtml(item.Risk_Level || 'Not specified');\n      const criticality = escapeHtml(item.Criticality || 'Non-Critical');\n\n      const resolutionTime =\n        item.Resolution_Time_Minutes !== null &&\n        item.Resolution_Time_Minutes !== undefined &&\n        item.Resolution_Time_Minutes !== ''\n          ? `${escapeHtml(item.Resolution_Time_Minutes)} minutes`\n          : 'Not Specified';\n\n      const tmoCategory = escapeHtml(item.TMO_Status || 'Not Specified');\n\n      const alertRequired =\n        item.Alert_Required === true ||\n        String(item.Alert_Required).toLowerCase() === 'true'\n          ? 'Yes'\n          : 'No';\n\n      const analysis = escapeHtml(\n        item.AI_Analysis || item.output || 'No AI analysis available.'\n      );\n\n      return `\n        <div style=\"margin: 24px 0; border: 1px solid #dce3ed; border-radius: 10px; overflow: hidden;\">\n\n          <div style=\"background-color: #e8f6ef; padding: 16px 18px; border-bottom: 1px solid #cce8da;\">\n            <p style=\"margin: 0 0 6px; font-size: 11px; font-weight: bold; color: #176447; letter-spacing: 1px;\">NON-CRITICAL CASE ${index + 1}</p>\n            <h2 style=\"margin: 0; font-size: 19px; color: #174c3c;\">${employee}</h2>\n          </div>\n\n          <div style=\"padding: 18px;\">\n            <p style=\"margin: 0 0 16px; color: #526176; line-height: 1.6;\">\n              <strong style=\"color: #243247;\">Situation:</strong><br>${situation}\n            </p>\n\n            <p style=\"margin: 0 0 16px; color: #526176; line-height: 1.6;\">\n              <strong style=\"color: #243247;\">Decision:</strong><br>${decision}\n            </p>\n\n            <table role=\"presentation\" style=\"width: 100%; border-collapse: collapse; font-size: 13px;\">\n              <tr>\n                <td style=\"padding: 10px; background-color: #f4f7fb; border: 1px solid #e1e7ef; width: 50%;\">\n                  <strong>Criticality</strong><br>\n                  <span style=\"display: inline-block; margin-top: 5px; color: #176447; font-weight: bold;\">${criticality}</span>\n                </td>\n                <td style=\"padding: 10px; background-color: #f4f7fb; border: 1px solid #e1e7ef; width: 50%;\">\n                  <strong>Risk Level</strong><br>\n                  <span style=\"display: inline-block; margin-top: 5px;\">${risk}</span>\n                </td>\n              </tr>\n              <tr>\n                <td style=\"padding: 10px; border: 1px solid #e1e7ef;\">\n                  <strong>Decision Quality</strong><br>\n                  <span style=\"display: inline-block; margin-top: 5px;\">${quality}</span>\n                </td>\n                <td style=\"padding: 10px; border: 1px solid #e1e7ef;\">\n                  <strong>Resolution Time</strong><br>\n                  <span style=\"display: inline-block; margin-top: 5px; font-weight: bold;\">Resolution Time: ${resolutionTime}</span>\n                </td>\n              </tr>\n              <tr>\n                <td colspan=\"2\" style=\"padding: 12px; border: 1px solid #e1e7ef;\">\n                  <strong>TMO Category:</strong> ${tmoCategory}<br>\n                  <strong>Alert Required:</strong> ${alertRequired}\n                </td>\n              </tr>\n            </table>\n\n            <div style=\"margin-top: 20px; padding: 16px; background-color: #f4f7fb; border-left: 4px solid #258567; border-radius: 4px;\">\n              <h3 style=\"margin: 0 0 10px; font-size: 15px; color: #174c3c;\">AI Analysis &amp; Suggestion</h3>\n              <div style=\"white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.8; color: #526176;\">${analysis}</div>\n            </div>\n          </div>\n        </div>\n      `;\n    }).join('') }}\n\n    <p style=\"margin: 24px 0 0; line-height: 1.7;\">Thank you for supporting continuous improvement.</p>\n  </div>\n\n  <div style=\"background-color: #e9eef5; padding: 18px 24px; border-radius: 0 0 12px 12px; text-align: center;\">\n    <p style=\"margin: 0; font-size: 12px; color: #526176;\">BPO Decision Making · Automated Report</p>\n    <p style=\"margin: 6px 0 0; font-size: 11px; color: #718096;\">This report was generated automatically.</p>\n  </div>\n\n</div>\n",
+        "options": {
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {}
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        3232,
+        416
+      ],
+      "id": "ef14ecec-58ba-41a7-80e3-933ae973f7c4",
+      "name": "Non-Critical Cases",
+      "webhookId": "abbc4fbc-2f41-44b0-ae9a-68f68be39ded",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "xd73cuyyNsJMiNXL",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=\nAnalyze this critical BPO decision using basic English.\n\nSituation: {{ $json.Situation }}\nDecision: {{ $json.Decision }}\nReason: {{ $json.Reason }}\nResult: {{ $json.Result }}\nConfidence: {{ $json.Confidence }}\nDecision Type: {{ $json.Decision_Type }}\nRisk Level: {{ $json.Risk_Level }}\nDecision Quality: {{ $json.Decision_Quality }}\nCriticality: {{ $json.Criticality }}\nResolution Time: {{ $json.Resolution_Time_Minutes }} minutes\nTMO Category: {{ $json.TMO_Status }}\n\nGive a short and simple analysis.\n\nExplain why this case is critical.\nExplain the possible risk or impact.\nExplain if the decision was good or if it needs review.\nExplain whether the resolution time meets the target and mention any TMO risk.\nGive one clear suggestion for immediate action.\n\nUse this format:\n\nDecision:\nReason:\nResult:\nRisk Level:\nDecision Quality:\nCriticality:\nResolution Time:\nTMO Category:\nAnalysis:\nImmediate Action:\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1520,
+        32
+      ],
+      "id": "25fe31de-51b8-4855-be0e-082aa463a891",
+      "name": "AI Agent — Critical",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=\nAnalyze this non-critical BPO decision using basic English.\n\nSituation: {{ $json.Situation }}\nDecision: {{ $json.Decision }}\nReason: {{ $json.Reason }}\nResult: {{ $json.Result }}\nConfidence: {{ $json.Confidence }}\nDecision Type: {{ $json.Decision_Type }}\nRisk Level: {{ $json.Risk_Level }}\nDecision Quality: {{ $json.Decision_Quality }}\nCriticality: {{ $json.Criticality }}\nResolution Time: {{ $json.Resolution_Time_Minutes }} minutes\nTMO Category: {{ $json.TMO_Status }}\n\nGive a short and simple analysis.\n\nExplain why this case is non-critical.\nExplain the possible risk or impact.\nExplain if the decision was good or if it needs review.\nExplain whether the resolution time meets the target and mention any TMO risk.\nGive one clear and practical suggestion.\n\nUse this format:\n\nDecision:\nReason:\nResult:\nRisk Level:\nDecision Quality:\nCriticality:\nResolution Time:\nTMO Category:\nAnalysis:\nSuggestion:\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1552,
+        592
+      ],
+      "id": "cd5ec1f1-376b-418a-a503-7b3cfe03bd37",
+      "name": "AI Agent — Non-Critical",
+      "retryOnFail": true,
+      "waitBetweenTries": 1000,
+      "maxTries": 5
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "analisis_completo",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2320,
+        -96
+      ],
+      "id": "42f984bf-89f2-4c8d-bb13-057bc5f56e7e",
+      "name": "Aggregate Critical"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "analisis_completo",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2320,
+        432
+      ],
+      "id": "73244562-0fff-4bb5-af7d-e1c165a1412d",
+      "name": "Aggregate Non-Critical"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash-lite",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        1552,
+        816
+      ],
+      "id": "e8df0cb2-1a65-43ea-9ab3-c2f4adb78dd7",
+      "name": "Google Gemini Chat Model1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "j7ji28XNudZC3MRc",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d584eac6-3338-40c9-88c6-8d4f89b26fda",
+              "name": "Employee_Name",
+              "value": "={{ $(\"Code in JavaScript\").item.json.Employee_Name }}",
+              "type": "string"
+            },
+            {
+              "id": "8308929b-303c-44b5-b85b-0584d76b16df",
+              "name": "Situation",
+              "value": "={{ $(\"Code in JavaScript\").item.json.Situation }}",
+              "type": "string"
+            },
+            {
+              "id": "3d0fc8db-6e4e-4a10-80a1-25885bb1f446",
+              "name": "Decision_Quality",
+              "value": "={{ $(\"Code in JavaScript\").item.json.Decision_Quality }}",
+              "type": "string"
+            },
+            {
+              "id": "d82ca3f6-16ba-40a8-8196-66cd39d64979",
+              "name": "Risk_Level",
+              "value": "={{ $(\"Code in JavaScript\").item.json.Risk_Level }}",
+              "type": "string"
+            },
+            {
+              "id": "3c3193be-00b0-4d11-a27b-6f0b42c80be1",
+              "name": "AI_Analysis",
+              "value": "={{ $json.output }}",
+              "type": "string"
+            },
+            {
+              "id": "2d76ace9-3359-4385-9711-0a8c51a0b829",
+              "name": "Criticality",
+              "value": "Non-Critical",
+              "type": "string"
+            },
+            {
+              "id": "d91651a2-bfe7-437a-a950-57086ea0c752",
+              "name": "Resolution_Time_Minutes",
+              "value": "={{ $('Code in JavaScript').item.json.Resolution_Time_Minutes }}",
+              "type": "string"
+            },
+            {
+              "id": "8a1ba673-b9d6-4c40-bcc9-5012b04f8861",
+              "name": "TMO_Status",
+              "value": "={{ $('Code in JavaScript').item.json.TMO_Status }}",
+              "type": "string"
+            },
+            {
+              "id": "2096a059-090e-4468-8f42-34ef85cff026",
+              "name": "Alert_Required",
+              "value": "={{ $('Code in JavaScript').item.json.Alert_Required }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1888,
+        592
+      ],
+      "id": "29eabcda-8b85-4946-9eb7-62f077c4e2d7",
+      "name": "Edit Fields — Non-Critical"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d584eac6-3338-40c9-88c6-8d4f89b26fda",
+              "name": "Employee_Name",
+              "value": "={{ $(\"Code in JavaScript\").item.json.Employee_Name }}",
+              "type": "string"
+            },
+            {
+              "id": "8308929b-303c-44b5-b85b-0584d76b16df",
+              "name": "Situation",
+              "value": "={{ $(\"Code in JavaScript\").item.json.Situation }}",
+              "type": "string"
+            },
+            {
+              "id": "3d0fc8db-6e4e-4a10-80a1-25885bb1f446",
+              "name": "Decision_Quality",
+              "value": "={{ $(\"Code in JavaScript\").item.json.Decision_Quality }}",
+              "type": "string"
+            },
+            {
+              "id": "d82ca3f6-16ba-40a8-8196-66cd39d64979",
+              "name": "Risk_Level",
+              "value": "={{ $(\"Code in JavaScript\").item.json.Risk_Level }}",
+              "type": "string"
+            },
+            {
+              "id": "3c3193be-00b0-4d11-a27b-6f0b42c80be1",
+              "name": "AI_Analysis",
+              "value": "={{ $json.output }}",
+              "type": "string"
+            },
+            {
+              "id": "2d76ace9-3359-4385-9711-0a8c51a0b829",
+              "name": "Criticality",
+              "value": "Critical",
+              "type": "string"
+            },
+            {
+              "id": "66df9818-8d08-4165-8b0f-1123b9de20e8",
+              "name": "Resolution_Time_Minutes",
+              "value": "={{ $('Code in JavaScript').item.json.Resolution_Time_Minutes }}",
+              "type": "string"
+            },
+            {
+              "id": "27a36a7a-dbec-4598-828c-dd9529445d84",
+              "name": "TMO_Status",
+              "value": "={{ $('Code in JavaScript').item.json.TMO_Status }}",
+              "type": "string"
+            },
+            {
+              "id": "db19b0af-83a7-424e-83ab-34fe8482e4e7",
+              "name": "Alert_Required",
+              "value": "={{ $('Code in JavaScript').item.json.Alert_Required }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": "={{ true }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1888,
+        32
+      ],
+      "id": "50e04836-a120-43f9-b291-2cf1fdce2588",
+      "name": "Edit Fields — Critical"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst cases = $input.all().flatMap(item => {\n  const data = item.json.analisis_completo;\n  return Array.isArray(data) ? data : [item.json];\n});\n\nconst originalItems = $('Code in JavaScript').all();\n\nreturn cases.map(item => {\n  const source = originalItems.find(\n    entry => entry.json.Employee_Name === item.Employee_Name\n  )?.json || {};\n\n  return {\n    json: {\n      Employee_ID: source.Employee_ID || \"\",\n      Employee_Name: item.Employee_Name || source.Employee_Name || \"\",\n      Situation: item.Situation || source.Situation || \"\",\n      Decision: source.Decision || \"\",\n      Reason: source.Reason || \"\",\n      Result: source.Result || \"\",\n      Confidence: source.Confidence || \"\",\n      Decision_Type: source.Decision_Type || \"\",\n      Risk_Level: item.Risk_Level || source.Risk_Level || \"\",\n      Decision_Quality: item.Decision_Quality || source.Decision_Quality || \"\",\n      Criticality: item.Criticality || source.Criticality || \"\",\n      Resolution_Time_Minutes: source.Resolution_Time_Minutes ?? item.Resolution_Time_Minutes ?? \"\",\n      TMO_Status: source.TMO_Status || item.TMO_Status || \"Not Specified\",\n      Alert_Required: source.Alert_Required ?? (item.Alert_Required === true || item.Alert_Required === \"true\"),\n      AI_Analysis: item.AI_Analysis || item.output || \"\"\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2560,
+        288
+      ],
+      "id": "aa1da923-4f9a-485f-863f-ccc0e916bc06",
+      "name": "Prepare Non-Critical Excel"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2992,
+        416
+      ],
+      "id": "0cb59500-fc1c-4b65-8bd8-7f76920b7dc1",
+      "name": "Merge Non-Critical Report and Excel"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst cases = $input.all().flatMap(item => {\n  const data = item.json.analisis_completo;\n  return Array.isArray(data) ? data : [item.json];\n});\n\nconst originalItems = $('Code in JavaScript').all();\n\nreturn cases.map(item => {\n  const source = originalItems.find(\n    entry => entry.json.Employee_Name === item.Employee_Name\n  )?.json || {};\n\n  return {\n    json: {\n      Employee_ID: source.Employee_ID || \"\",\n      Employee_Name: item.Employee_Name || source.Employee_Name || \"\",\n      Situation: item.Situation || source.Situation || \"\",\n      Decision: source.Decision || \"\",\n      Reason: source.Reason || \"\",\n      Result: source.Result || \"\",\n      Confidence: source.Confidence || \"\",\n      Decision_Type: source.Decision_Type || \"\",\n      Risk_Level: item.Risk_Level || source.Risk_Level || \"\",\n      Decision_Quality: item.Decision_Quality || source.Decision_Quality || \"\",\n      Criticality: item.Criticality || source.Criticality || \"\",\n      Resolution_Time_Minutes: source.Resolution_Time_Minutes ?? item.Resolution_Time_Minutes ?? \"\",\n      TMO_Status: source.TMO_Status || item.TMO_Status || \"Not Specified\",\n      Alert_Required: source.Alert_Required ?? (item.Alert_Required === true || item.Alert_Required === \"true\"),\n      AI_Analysis: item.AI_Analysis || item.output || \"\"\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2560,
+        32
+      ],
+      "id": "ad1e6c74-14d6-4b18-9655-bba970f84c5a",
+      "name": "Prepare Critical Excel"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {
+          "fileName": "Critical_Cases_Report.xlsx"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        2752,
+        32
+      ],
+      "id": "cda8b993-8665-4600-ad56-984169f6619c",
+      "name": "Convert to XLSX"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {
+          "fileName": "Non_Critical_Cases_Report.xlsx"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        2784,
+        288
+      ],
+      "id": "70b4f8c6-0b12-41d6-bd25-c3bd2f290fc6",
+      "name": "Convert to XLSX1"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2960,
+        -80
+      ],
+      "id": "437c339b-dd18-40b4-8906-d33be45072d3",
+      "name": "Merge Critical Report and Excel"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1248,
+        -80
+      ],
+      "id": "668b372c-fa51-4f87-8135-82b6298adf7b",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2112,
+        32
+      ],
+      "id": "36cce141-193d-4083-9fca-1ef5caabef0d",
+      "name": "Wait",
+      "webhookId": "78b30e09-0af2-47fd-a952-7309162be266"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1280,
+        448
+      ],
+      "id": "a24bcec7-5053-4ead-8ce8-d3c3ac793f99",
+      "name": "Loop Over Items1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2128,
+        592
+      ],
+      "id": "47f541b9-51d0-4d46-885d-b40792630b50",
+      "name": "Wait1",
+      "webhookId": "1e38ea4f-ce4a-4776-a025-aaa4bcb8ec32"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent — Critical",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent — Critical": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields — Critical",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent — Non-Critical": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields — Non-Critical",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Critical": {
+      "main": [
+        [
+          {
+            "node": "Prepare Critical Excel",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Critical Report and Excel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Non-Critical": {
+      "main": [
+        [
+          {
+            "node": "Prepare Non-Critical Excel",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Non-Critical Report and Excel",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent — Non-Critical",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields — Non-Critical": {
+      "main": [
+        [
+          {
+            "node": "Wait1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields — Critical": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Non-Critical Excel": {
+      "main": [
+        [
+          {
+            "node": "Convert to XLSX1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Non-Critical Report and Excel": {
+      "main": [
+        [
+          {
+            "node": "Non-Critical Cases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Critical Excel": {
+      "main": [
+        [
+          {
+            "node": "Convert to XLSX",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to XLSX1": {
+      "main": [
+        [
+          {
+            "node": "Merge Non-Critical Report and Excel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to XLSX": {
+      "main": [
+        [
+          {
+            "node": "Merge Critical Report and Excel",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Critical Report and Excel": {
+      "main": [
+        [
+          {
+            "node": "Critical Cases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Critical",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Agent — Critical",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Non-Critical",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Agent — Non-Critical",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "47b7d604-45e4-40a5-9084-0f5db9bd7051",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "2603f8c48cdca3ca43c678c4a609c00bd2a30bdcf211b9a6a3e0bbda8521cbf0"
+  },
+  "nodeGroups": [],
+  "id": "eeBkbnvWoqm7mLby",
+  "tags": []
+}
