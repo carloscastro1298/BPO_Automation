@@ -166,7 +166,7 @@ For each group (critical and non-critical), the workflow sends an HTML email wit
 
 ---
 
-## Team
+## Desarrollado Por
 
 - Carlos Castro
 - Vanderley Castro
